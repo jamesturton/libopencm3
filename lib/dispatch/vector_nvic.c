@@ -87,6 +87,9 @@
 #elif defined(SWM050)
 #       include "../swm050/vector_nvic.c"
 
+#elif defined(RP2040)
+#       include "../rp2040/vector_nvic.c"
+
 #else
 #	warning "no interrupts defined for chipset;"\
 	"not allocating space in the vector table"

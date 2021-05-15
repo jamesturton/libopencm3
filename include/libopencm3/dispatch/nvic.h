@@ -91,6 +91,9 @@
 #elif defined(PAC55XX)
 #       include <libopencm3/pac55xx/nvic.h>
 
+#elif defined(RP2040)
+#       include <libopencm3/rp2040/nvic.h>
+
 #else
 #	warning"no interrupts defined for chipset; NVIC_IRQ_COUNT = 0"
 

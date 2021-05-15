@@ -1,0 +1,33 @@
+{
+    "irqs": [
+		"timer_0",
+		"timer_1",
+		"timer_2",
+		"timer_3",
+		"pwm_wrap",
+		"usbctrl",
+		"xip",
+		"pio0_0",
+		"pio0_1",
+		"pio1_0",
+		"pio1_1",
+		"dma_0",
+		"dma_1",
+		"io_bank0",
+		"io_qspi",
+		"sio_proc0",
+		"sio_proc1",
+		"clocks",
+		"spi0",
+		"spi1",
+		"uart0",
+		"uart1",
+		"adc_fifo",
+		"i2c0",
+		"i2c1",
+		"rtc"
+    ],
+    "partname_humanreadable": "RP2040 series",
+    "partname_doxygen": "RP2040",
+    "includeguard": "LIBOPENCM3_RP2040_NVIC_H"
+}
