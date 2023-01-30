@@ -1,0 +1,49 @@
+##
+## This file is part of the libopencm3 project.
+##
+## Copyright (C) 2021 James Turton <james.turton@gmx.com>
+##
+## This library is free software: you can redistribute it and/or modify
+## it under the terms of the GNU Lesser General Public License as published by
+## the Free Software Foundation, either version 3 of the License, or
+## (at your option) any later version.
+##
+## This library is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU Lesser General Public License for more details.
+##
+## You should have received a copy of the GNU Lesser General Public License
+## along with this library.  If not, see <http://www.gnu.org/licenses/>.
+##
+
+LIBNAME		= libopencm3_rp2040
+SRCLIBDIR	?= ..
+
+CC		= $(PREFIX)gcc
+AR		= $(PREFIX)ar
+TGT_CFLAGS	= -Os -Wall -Wextra -I../../include -fno-common \
+		  -mcpu=cortex-m0plus -mthumb $(FP_FLAGS) -Wstrict-prototypes \
+		  -ffunction-sections -fdata-sections  -MD -DRP2040
+TGT_CFLAGS      += $(DEBUG_FLAGS)
+TGT_CFLAGS	+= $(STANDARD_FLAGS)
+ARFLAGS		= rcs
+
+OBJS += clocks.o
+OBJS += gpio.o
+OBJS += pll.o
+OBJS += resets.o
+OBJS += runtime.o
+OBJS += watchdog.o
+OBJS += xosc.o
+
+# OBJS += usb.o usb_control.o usb_standard.o usb_msc.o
+# OBJS += usb_hid.o
+# OBJS += usb_audio.o usb_cdc.o usb_midi.o
+# OBJS += st_usbfs_core.o st_usbfs_v2.o
+# OBJS += usb_dwc_common.o usb_rp2040.o
+
+VPATH += ../usb:../cm3:../common
+
+include ../Makefile.include
+
