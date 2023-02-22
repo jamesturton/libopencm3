@@ -71,9 +71,6 @@ MEMORY
 #if defined(_NFCRAM)
 	nfcram (rw) : ORIGIN = _NFCRAM_OFF, LENGTH = _NFCRAM
 #endif
-#if defined(_BOOT2)
-	boot2 (rx) : ORIGIN = _BOOT2_OFF, LENGTH = _BOOT2
-#endif
 }
 
 /* Define sections. */
@@ -228,15 +225,6 @@ SECTIONS
 		. = ALIGN(4);
 		_enfcram = .;
 	} >nfcram
-#endif
-
-#if defined(_BOOT2)
-    .boot2 : {
-        __boot2_start = .;
-        KEEP (*(.boot2))
-		. = ALIGN(4);
-        __boot2_end = .;
-    } > boot2
 #endif
 
 	/*
