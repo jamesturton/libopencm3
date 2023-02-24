@@ -27,6 +27,8 @@ MEMORY
 	ram (rwx) : ORIGIN = 0x20000000, LENGTH = 256K
 }
 
+EXTERN(BOOT2_ROM)
+
 /* Define sections. */
 SECTIONS
 {
