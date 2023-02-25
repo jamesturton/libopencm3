@@ -50,6 +50,8 @@
 #include <libopencm3/rp2040/resets.h>
 #include <libopencm3/rp2040/pll.h>
 
+static uint32_t configured_freq[CLOCKS_CLK_COUNT];
+
 bool clock_configure(uint8_t clk_index, uint32_t src, uint32_t auxsrc, uint32_t src_freq, uint32_t freq)
 {
     if (freq > src_freq)
@@ -82,6 +84,9 @@ bool clock_configure(uint8_t clk_index, uint32_t src, uint32_t auxsrc, uint32_t 
     // Now that the source is configured, we can trust that the user-supplied
     // divisor is a safe value.
     CLOCKS_CLK_DIV(clk_index) = div;
+
+    // Store the configured frequency
+    configured_freq[clk_index] = freq;
 
     return true;
 }
@@ -159,6 +164,10 @@ void clocks_init(void)
                     CLOCKS_CLK_PERI_CTRL_AUXSRC_CLK_SYS,
                     125 * MHZ,
                     125 * MHZ);
+}
+
+uint32_t clock_get_hz(uint8_t clk_index) {
+    return configured_freq[clk_index];
 }
 
 /**@}*/

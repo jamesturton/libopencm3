@@ -654,6 +654,7 @@ BEGIN_DECLS
 
 bool clock_configure(uint8_t clk_index, uint32_t src, uint32_t auxsrc, uint32_t src_freq, uint32_t freq);
 void clocks_init(void);
+uint32_t clock_get_hz(uint8_t clk_index);
 
 /** @} */
 END_DECLS

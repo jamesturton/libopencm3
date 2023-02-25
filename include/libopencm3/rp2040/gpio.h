@@ -88,13 +88,40 @@
 #define GPIO_DIR_OUT		(1)
 /** @} */
 
+
+/* =============================================================================
+ * Convenience enums
+ * ---------------------------------------------------------------------------*/
+/**
+ * \brief  GPIO function definitions for use with function select
+ *
+ * Each GPIO can have one function selected at a time. Likewise, each peripheral
+ * input (e.g. UART0 RX) should only be selected on one GPIO at a time. If the
+ * same peripheral input is connected to multiple GPIOs, the peripheral sees the
+ * logical OR of these GPIO inputs.
+ */
+enum gpio_function {
+    GPIO_FUNC_XIP,
+    GPIO_FUNC_SPI,
+    GPIO_FUNC_UART,
+    GPIO_FUNC_I2C,
+    GPIO_FUNC_PWM,
+    GPIO_FUNC_SIO,
+    GPIO_FUNC_PIO0,
+    GPIO_FUNC_PIO1,
+    GPIO_FUNC_GPCK,
+    GPIO_FUNC_USB,
+    GPIO_FUNC_NULL = 0x1f,
+};
+
+
 /* =============================================================================
  * Function prototypes
  * ---------------------------------------------------------------------------*/
 BEGIN_DECLS
 
 void gpio_init(uint32_t gpios);
-void gpio_set_func(uint32_t gpios, uint8_t func);
+void gpio_set_func(uint32_t gpios, enum gpio_function func);
 void gpio_set_dir(uint32_t gpios, bool out);
 void gpio_set(uint32_t gpios);
 void gpio_clear(uint32_t gpios);

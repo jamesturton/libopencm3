@@ -57,7 +57,7 @@ void gpio_init(uint32_t gpio)
     gpio_set_func(gpio, IO_GPIO_CTRL_FUNCSEL_SIO);
 }
 
-void gpio_set_func(uint32_t gpios, uint8_t func)
+void gpio_set_func(uint32_t gpios, enum gpio_function func)
 {
     uint16_t i;
 
@@ -86,13 +86,9 @@ void gpio_set_func(uint32_t gpios, uint8_t func)
 void gpio_set_dir(uint32_t gpios, bool out)
 {
     if (out)
-    {
         GPIO_OE_SET = gpios;
-    }
     else
-    {
         GPIO_OE_CLR = gpios;
-    }
 }
 
 void gpio_set(uint32_t gpios)

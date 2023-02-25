@@ -35,6 +35,7 @@ OBJS += gpio.o
 OBJS += pll.o
 OBJS += resets.o
 OBJS += runtime.o
+OBJS += uart.o
 OBJS += watchdog.o
 OBJS += xosc.o
 
