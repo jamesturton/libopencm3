@@ -42,25 +42,89 @@
 #include <libopencm3/cm3/common.h>
 
 /* ============================================================================
+ * USB DPRAM registers
+ * --------------------------------------------------------------------------*/
+
+#define USB_DPRAM_SIZE                  0x1000
+#define USB_DPRAM_EP_NUM                16
+#define USB_DPRAM_EP0_BUF_SIZE          0x40
+#define USB_DPRAM_BUFFER_OFFSET         0x180
+#define USB_DPRAM_BUFFER_SIZE           (USB_DPRAM_SIZE - USB_DPRAM_BUFFER_OFFSET)
+
+#define USB_DPRAM_SETUP                 MMIO8((USBCTRL_DPRAM_BASE) + 0x00)
+#define USB_DPRAM_EP_IN_CTRL(ep)        MMIO32((USBCTRL_DPRAM_BASE) + 0x00 + (0x04 * (ep)))
+#define USB_DPRAM_EP_OUT_CTRL(ep)       MMIO32((USBCTRL_DPRAM_BASE) + 0x04 + (0x04 * (ep)))
+#define USB_DPRAM_EP_IN_BUFF_CTRL(ep)   MMIO32((USBCTRL_DPRAM_BASE) + 0x80 + (0x04 * (ep)))
+#define USB_DPRAM_EP_OUT_BUFF_CTRL(ep)  MMIO32((USBCTRL_DPRAM_BASE) + 0x84 + (0x04 * (ep)))
+#define USB_DPRAM_EP0_BUFF              MMIO8((USBCTRL_DPRAM_BASE) + 0x100)
+#define USB_DPRAM_EP0_BUFF_OPT          MMIO8((USBCTRL_DPRAM_BASE) + 0x140)
+#define USB_DPRAM_BUFFER                MMIO8((USBCTRL_DPRAM_BASE) + USB_DPRAM_BUFFER_OFFSET)
+
+/* --- USB_DPRAM_EP_CTRL values --------------------------------------------- */
+
+#define USB_DPRAM_EP_CTRL_ENABLE                    (0x1 << 31)
+
+#define USB_DPRAM_EP_CTRL_DOUBLE_BUFFERED           (0x1 << 30)
+
+#define USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF        (0x1 << 29)
+
+#define USB_DPRAM_EP_CTRL_INTERRUPT_PER_DOUBLE_BUFF (0x1 << 28)
+
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type)       ((type) << 26)
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE_MASK        (0x3 << 26)
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE_CONTROL     (0x0)
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE_ISO         (0x1)
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE_BULK        (0x2)
+#define USB_DPRAM_EP_CTRL_ENDPOINT_TYPE_INTERRUPT   (0x3)
+
+#define USB_DPRAM_EP_CTRL_INTERRUPT_ON_STALL        (0x1 << 17)
+
+#define USB_DPRAM_EP_CTRL_INTERRUPT_ON_NAK          (0x1 << 16)
+
+#define USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(addr)      ((addr) << 0)
+#define USB_DPRAM_EP_CTRL_BUFFER_ADDRESS_MASK       (0xffff << 0)
+
+/* --- USB_DPRAM_EP_x_BUFF_CTRL values -------------------------------------- */
+
+#define USB_DPRAM_EP_BUFF_CTRL_FULL_1                           (0x1 << 31)
+
+#define USB_DPRAM_EP_BUFF_CTRL_LAST_1                           (0x1 << 30)
+
+#define USB_DPRAM_EP_BUFF_CTRL_PID_1                            (0x1 << 29)
+
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO(mode)          ((mode) << 27)
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO_MASK           (0x3 << 27)
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO_128            (0x0)
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO_256            (0x1)
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO_512            (0x2)
+#define USB_DPRAM_EP_BUFF_CTRL_DOUBLE_BUFFER_ISO_1024           (0x3)
+
+#define USB_DPRAM_EP_BUFF_CTRL_AVAILABLE_1                      (0x1 << 26)
+
+#define USB_DPRAM_EP_BUFF_CTRL_LENGTH_1(len)                    ((len) << 16)
+#define USB_DPRAM_EP_BUFF_CTRL_LENGTH_1_MASK                    (0x3ff << 16)
+
+#define USB_DPRAM_EP_BUFF_CTRL_FULL_0                           (0x1 << 15)
+
+#define USB_DPRAM_EP_BUFF_CTRL_LAST_0                           (0x1 << 14)
+
+#define USB_DPRAM_EP_BUFF_CTRL_PID_0                            (0x1 << 13)
+
+#define USB_DPRAM_EP_BUFF_CTRL_RESET                            (0x1 << 12)
+
+#define USB_DPRAM_EP_BUFF_CTRL_STALL                            (0x1 << 11)
+
+#define USB_DPRAM_EP_BUFF_CTRL_AVAILABLE_0                      (0x1 << 10)
+
+#define USB_DPRAM_EP_BUFF_CTRL_LENGTH_0(len)                    ((len) << 0)
+#define USB_DPRAM_EP_BUFF_CTRL_LENGTH_0_MASK                    (0x3ff << 0)
+
+
+/* ============================================================================
  * USB registers
  * --------------------------------------------------------------------------*/
 
-#define USB_ADDR_ENDP               MMIO32((USBCTRL_REGS_BASE) + 0x00)
-#define USB_ADDR_ENDP1              MMIO32((USBCTRL_REGS_BASE) + 0x04)
-#define USB_ADDR_ENDP2              MMIO32((USBCTRL_REGS_BASE) + 0x08)
-#define USB_ADDR_ENDP3              MMIO32((USBCTRL_REGS_BASE) + 0x0c)
-#define USB_ADDR_ENDP4              MMIO32((USBCTRL_REGS_BASE) + 0x10)
-#define USB_ADDR_ENDP5              MMIO32((USBCTRL_REGS_BASE) + 0x14)
-#define USB_ADDR_ENDP6              MMIO32((USBCTRL_REGS_BASE) + 0x18)
-#define USB_ADDR_ENDP7              MMIO32((USBCTRL_REGS_BASE) + 0x1c)
-#define USB_ADDR_ENDP8              MMIO32((USBCTRL_REGS_BASE) + 0x20)
-#define USB_ADDR_ENDP9              MMIO32((USBCTRL_REGS_BASE) + 0x24)
-#define USB_ADDR_ENDP10             MMIO32((USBCTRL_REGS_BASE) + 0x28)
-#define USB_ADDR_ENDP11             MMIO32((USBCTRL_REGS_BASE) + 0x2c)
-#define USB_ADDR_ENDP12             MMIO32((USBCTRL_REGS_BASE) + 0x30)
-#define USB_ADDR_ENDP13             MMIO32((USBCTRL_REGS_BASE) + 0x34)
-#define USB_ADDR_ENDP14             MMIO32((USBCTRL_REGS_BASE) + 0x38)
-#define USB_ADDR_ENDP15             MMIO32((USBCTRL_REGS_BASE) + 0x3c)
+#define USB_ADDR_ENDP(ep)           MMIO32((USBCTRL_REGS_BASE) + (0x04 * (ep)))
 #define USB_MAIN_CTRL               MMIO32((USBCTRL_REGS_BASE) + 0x40)
 #define USB_SOF_WR                  MMIO32((USBCTRL_REGS_BASE) + 0x44)
 #define USB_SOF_RD                  MMIO32((USBCTRL_REGS_BASE) + 0x48)
@@ -547,20 +611,6 @@
 #define USB_INT_ABORT_DONE                          (0x1 << 18)
 
 #define USB_INT_EP_STALL_NAK                        (0x1 << 19)
-
-/* =============================================================================
- * Function prototypes
- * ---------------------------------------------------------------------------*/
-BEGIN_DECLS
-
-void usb_enable_interrupts(enum usb_interrupt ints,
-               enum usb_ep_interrupt rx_ints,
-               enum usb_ep_interrupt tx_ints);
-void usb_disable_interrupts(enum usb_interrupt ints,
-                enum usb_ep_interrupt rx_ints,
-                enum usb_ep_interrupt tx_ints);
-
-END_DECLS
 
 /**@}*/
 

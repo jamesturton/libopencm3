@@ -39,10 +39,10 @@ OBJS += uart.o
 OBJS += watchdog.o
 OBJS += xosc.o
 
-# OBJS += usb.o usb_control.o usb_standard.o usb_msc.o
-# OBJS += usb_hid.o
-# OBJS += usb_audio.o usb_cdc.o usb_midi.o
-# OBJS += usb_dwc_common.o usb_rp2040.o
+OBJS += usb.o usb_control.o usb_standard.o usb_msc.o
+OBJS += usb_hid.o
+OBJS += usb_audio.o usb_cdc.o usb_midi.o
+OBJS += usb_dwc_common.o usb_rp2040.o
 
 VPATH += ../usb:../cm3:../common
 

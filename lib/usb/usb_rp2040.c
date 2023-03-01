@@ -92,184 +92,96 @@
 #include "../../lib/usb/usb_private.h"
 
 #include <stdbool.h>
-
-
-#define MAX_FIFO_RAM	(4 * 1024)
+#include <string.h>
 
 const struct _usbd_driver rp2040_usb_driver;
 
-/**
- * \brief Enable Specific USB Interrupts
- *
- * Enable any combination of interrupts. Interrupts may be OR'ed together to
- * enable them with one call. For example, to enable both the RESUME and RESET
- * interrupts, pass (USB_INT_RESUME | USB_INT_RESET)
- *
- * Note that the NVIC must be enabled and properly configured for the interrupt
- * to be routed to the CPU.
- *
- * @param[in] ints Interrupts which to enable. Any combination of interrupts may
- *                 be specified by OR'ing then together
- * @param[in] rx_ints Endpoints for which to generate an interrupt when a packet
- *                    packet is received.
- * @param[in] tx_ints Endpoints for which to generate an interrupt when a packet
- *                    packet is finished transmitting.
- */
-void usb_enable_interrupts(enum usb_interrupt ints,
-			   enum usb_ep_interrupt rx_ints,
-			   enum usb_ep_interrupt tx_ints)
+typedef struct
 {
-	USB_IE |= ints;
-	USB_RXIE |= rx_ints;
-	USB_TXIE |= tx_ints;
-}
+	int					in_pid;
+	volatile uint8_t *	in_buf;
+	int					out_pid;
+	volatile uint8_t *	out_buf;
+	uint8_t *			out_data;
+} usb_ep_t;
 
-/**
- * \brief Disable Specific USB Interrupts
- *
- * Disable any combination of interrupts. Interrupts may be OR'ed together to
- * enable them with one call. For example, to disable both the RESUME and RESET
- * interrupts, pass (USB_INT_RESUME | USB_INT_RESET)
- *
- * Note that the NVIC must be enabled and properly configured for the interrupt
- * to be routed to the CPU.
- *
- * @param[in] ints Interrupts which to disable. Any combination of interrupts
- *                 may be specified by OR'ing then together
- * @param[in] rx_ints Endpoints for which to stop generating an interrupt when a
- *                    packet packet is received.
- * @param[in] tx_ints Endpoints for which to stop generating an interrupt when a
- *                    packet packet is finished transmitting.
- */
-void usb_disable_interrupts(enum usb_interrupt ints,
-			    enum usb_ep_interrupt rx_ints,
-			    enum usb_ep_interrupt tx_ints)
-{
-	USB_IE &= ~ints;
-	USB_RXIE &= ~rx_ints;
-	USB_TXIE &= ~tx_ints;
-}
+static usb_ep_t usb_ep[USB_DPRAM_EP_NUM];
 
 /**
  * @cond private
  */
 static inline void rp2040_usb_soft_disconnect(void)
 {
-	USB_POWER &= ~USB_POWER_SOFTCONN;
+	USB_SIE_CTRL &= ~USB_SIE_CTRL_PULLUP_EN;
 }
 
 static inline void rp2040_usb_soft_connect(void)
 {
-	USB_POWER |= USB_POWER_SOFTCONN;
+	USB_SIE_CTRL |= USB_SIE_CTRL_PULLUP_EN;
 }
 
 static void rp2040_set_address(usbd_device *usbd_dev, uint8_t addr)
 {
 	(void)usbd_dev;
 
-	USB_FADDR = addr & USB_FADDR_FUNCADDR_MASK;
+	USB_ADDR_ENDP(0) = USB_ADDR_ENDP_ADDRESS(addr) & USB_ADDR_ENDP_ADDRESS_MASK;
 }
 
 static void rp2040_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
 			  uint16_t max_size,
 			  void (*callback) (usbd_device *usbd_dev, uint8_t ep))
 {
-	(void)usbd_dev;
-	(void)type;
-
-	uint8_t reg8;
-	uint16_t fifo_size;
-
 	const bool dir_tx = addr & 0x80;
-	const uint8_t ep = addr & 0x0f;
+	const uint8_t ep = addr & 0x7f;
 
 	/*
 	 * We do not mess with the maximum packet size, but we can only allocate
 	 * the FIFO in power-of-two increments.
 	 */
-	if (max_size > 1024) {
+	uint16_t fifo_size;
+	if (max_size > 1024)
 		fifo_size = 2048;
-		reg8 = USB_FIFOSZ_SIZE_2048;
-	} else if (max_size > 512) {
+	else if (max_size > 512)
 		fifo_size = 1024;
-		reg8 = USB_FIFOSZ_SIZE_1024;
-	} else if (max_size > 256) {
+	else if (max_size > 256)
 		fifo_size = 512;
-		reg8 = USB_FIFOSZ_SIZE_512;
-	} else if (max_size > 128) {
+	else if (max_size > 128)
 		fifo_size = 256;
-		reg8 = USB_FIFOSZ_SIZE_256;
-	} else if (max_size > 64) {
+	else if (max_size > 64)
 		fifo_size = 128;
-		reg8 = USB_FIFOSZ_SIZE_128;
-	} else if (max_size > 32) {
+	else if (max_size > 32)
 		fifo_size = 64;
-		reg8 = USB_FIFOSZ_SIZE_64;
-	} else if (max_size > 16) {
+	else if (max_size > 16)
 		fifo_size = 32;
-		reg8 = USB_FIFOSZ_SIZE_32;
-	} else if (max_size > 8) {
+	else if (max_size > 8)
 		fifo_size = 16;
-		reg8 = USB_FIFOSZ_SIZE_16;
-	} else {
+	else
 		fifo_size = 8;
-		reg8 = USB_FIFOSZ_SIZE_8;
-	}
-
-	/* Endpoint 0 is more special */
-	if (addr == 0) {
-		USB_EPIDX = 0;
-
-		if (reg8 > USB_FIFOSZ_SIZE_64) {
-			reg8 = USB_FIFOSZ_SIZE_64;
-		}
-
-		/* The RX and TX FIFOs are shared for EP0 */
-		USB_RXFIFOSZ = reg8;
-		USB_TXFIFOSZ = reg8;
-
-		/*
-		 * Regardless of how much we allocate, the first 64 bytes
-		 * are always reserved for EP0.
-		 */
-		usbd_dev->fifo_mem_top_ep0 = 64;
-		return;
-	}
 
 	/* Are we out of FIFO space? */
-	if (usbd_dev->fifo_mem_top + fifo_size > MAX_FIFO_RAM) {
+	if (usbd_dev->fifo_mem_top + fifo_size > USB_DPRAM_SIZE)
 		return;
-	}
 
-	USB_EPIDX = addr & USB_EPIDX_MASK;
-
-	/* FIXME: What about double buffering? */
 	if (dir_tx) {
-		USB_TXMAXP(ep) = max_size;
-		USB_TXFIFOSZ = reg8;
-		USB_TXFIFOADD = ((usbd_dev->fifo_mem_top) >> 3);
-		if (callback) {
-			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_IN] =
-			(void *)callback;
-		}
-		if (type == USB_ENDPOINT_ATTR_ISOCHRONOUS) {
-			USB_TXCSRH(ep) |= USB_TXCSRH_ISO;
-		} else {
-			USB_TXCSRH(ep) &= ~USB_TXCSRH_ISO;
-		}
+		if (callback)
+			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_IN] = (void *)callback;
+
+		usb_ep[ep].in_buf = (volatile uint8_t *)(USBCTRL_DPRAM_BASE + usbd_dev->fifo_mem_top);
+
+		USB_DPRAM_EP_IN_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
+			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
+			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
+			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
 	} else {
-		USB_RXMAXP(ep) = max_size;
-		USB_RXFIFOSZ = reg8;
-		USB_RXFIFOADD = ((usbd_dev->fifo_mem_top) >> 3);
-		if (callback) {
-			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_OUT] =
-			(void *)callback;
-		}
-		if (type == USB_ENDPOINT_ATTR_ISOCHRONOUS) {
-			USB_RXCSRH(ep) |= USB_RXCSRH_ISO;
-		} else {
-			USB_RXCSRH(ep) &= ~USB_RXCSRH_ISO;
-		}
+		if (callback)
+			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_OUT] = (void *)callback;
+
+		usb_ep[ep].out_buf = (volatile uint8_t *)(USBCTRL_DPRAM_BASE + usbd_dev->fifo_mem_top);
+
+		USB_DPRAM_EP_OUT_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
+			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
+			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
+			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
 	}
 
 	usbd_dev->fifo_mem_top += fifo_size;
@@ -277,11 +189,16 @@ static void rp2040_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
 
 static void rp2040_endpoints_reset(usbd_device *usbd_dev)
 {
-	/*
-	 * The core resets the endpoints automatically on reset.
-	 * The first 64 bytes are always reserved for EP0
-	 */
-	usbd_dev->fifo_mem_top = 64;
+	// Don't reset ep0
+	for (int i = 1; i < USB_DPRAM_EP_NUM; i++)
+	{
+		USB_DPRAM_EP_IN_CTRL(i)  = 0;
+		USB_DPRAM_EP_OUT_CTRL(i)  = 0;
+	}
+
+	memset(&usb_ep, 0, sizeof(usb_ep));
+
+	usbd_dev->fifo_mem_top = USB_DPRAM_BUFFER_OFFSET;
 }
 
 static void rp2040_ep_stall_set(usbd_device *usbd_dev, uint8_t addr,
@@ -292,26 +209,21 @@ static void rp2040_ep_stall_set(usbd_device *usbd_dev, uint8_t addr,
 	const uint8_t ep = addr & 0x0f;
 	const bool dir_tx = addr & 0x80;
 
-	if (ep == 0) {
-		if (stall) {
-			USB_CSRL0 |= USB_CSRL0_STALL;
-		} else {
-			USB_CSRL0 &= ~USB_CSRL0_STALL;
-		}
-		return;
-	}
-
 	if (dir_tx) {
 		if (stall) {
-			(USB_TXCSRL(ep)) |= USB_TXCSRL_STALL;
+			if (ep == 0)
+				USB_EP_STALL_ARM = USB_EP_STALL_ARM_EP0_IN;
+			USB_DPRAM_EP_IN_BUFF_CTRL(ep) |= USB_DPRAM_EP_BUFF_CTRL_STALL;
 		} else {
-			(USB_TXCSRL(ep)) &= ~USB_TXCSRL_STALL;
+			USB_DPRAM_EP_IN_BUFF_CTRL(ep) &= ~USB_DPRAM_EP_BUFF_CTRL_STALL;
 		}
 	} else {
 		if (stall) {
-			(USB_RXCSRL(ep)) |= USB_RXCSRL_STALL;
+			if (ep == 0)
+				USB_EP_STALL_ARM = USB_EP_STALL_ARM_EP0_OUT;
+			USB_DPRAM_EP_OUT_BUFF_CTRL(ep) |= USB_DPRAM_EP_BUFF_CTRL_STALL;
 		} else {
-			(USB_RXCSRL(ep)) &= ~USB_RXCSRL_STALL;
+			USB_DPRAM_EP_OUT_BUFF_CTRL(ep) &= ~USB_DPRAM_EP_BUFF_CTRL_STALL;
 		}
 	}
 }
@@ -323,14 +235,12 @@ static uint8_t rp2040_ep_stall_get(usbd_device *usbd_dev, uint8_t addr)
 	const uint8_t ep = addr & 0x0f;
 	const bool dir_tx = addr & 0x80;
 
-	if (ep == 0) {
-		return USB_CSRL0 & USB_CSRL0_STALLED;
-	}
-
 	if (dir_tx) {
-		return USB_TXCSRL(ep) & USB_TXCSRL_STALLED;
+		usb_ep[ep].in_pid = 0;
+		return (USB_DPRAM_EP_IN_BUFF_CTRL(ep) & USB_DPRAM_EP_BUFF_CTRL_STALL) ? 1 : 0;
 	} else {
-		return USB_RXCSRL(ep) & USB_RXCSRL_STALLED;
+		usb_ep[ep].out_pid = 0;
+		return (USB_DPRAM_EP_OUT_BUFF_CTRL(ep) & USB_DPRAM_EP_BUFF_CTRL_STALL) ? 1 : 0;
 	}
 }
 
@@ -346,50 +256,23 @@ static void rp2040_ep_nak_set(usbd_device *usbd_dev, uint8_t addr, uint8_t nak)
 static uint16_t rp2040_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 			      const void *buf, uint16_t len)
 {
+	(void)usbd_dev;
 	const uint8_t ep = addr & 0xf;
 	uint16_t i;
 
-	(void)usbd_dev;
+	for (i = 0; i < len; i++)
+		usb_ep[ep].in_buf[i] = *((uint8_t *)(buf + i));
 
-	/* Don't touch the FIFO if there is still a packet being transmitted */
-	if (ep == 0 && (USB_CSRL0 & USB_CSRL0_TXRDY)) {
-		return 0;
-	} else if (USB_TXCSRL(ep) & USB_TXCSRL_TXRDY) {
-		return 0;
-	}
+	uint32_t v = len | USB_DPRAM_EP_BUFF_CTRL_FULL_0 |
+		(usb_ep[ep].in_pid ? USB_DPRAM_EP_BUFF_CTRL_PID_0 : 0);
+	usb_ep[ep].in_pid ^= 1;
 
-	/*
-	 * We don't need to worry about buf not being aligned. If it's not,
-	 * the reads are downgraded to 8-bit in hardware. We lose a bit of
-	 * performance, but we don't crash.
-	 */
-	for (i = 0; i < (len & ~0x3); i += 4) {
-		USB_FIFO32(ep) = *((uint32_t *)(buf + i));
-	}
-	if (len & 0x2) {
-		USB_FIFO16(ep) = *((uint16_t *)(buf + i));
-		i += 2;
-	}
-	if (len & 0x1) {
-		USB_FIFO8(ep)  = *((uint8_t *)(buf + i));
-		i += 1;
-	}
-
-	if (ep == 0) {
-		/*
-		 * EP0 is very special. We should only set DATAEND when we
-		 * transmit the last packet in the transaction. A transaction
-		 * that is a multiple of 64 bytes will end with a zero-length
-		 * packet, so our check is sane.
-		 */
-		if (len != 64) {
-			USB_CSRL0 |= USB_CSRL0_TXRDY | USB_CSRL0_DATAEND;
-		} else {
-			USB_CSRL0 |= USB_CSRL0_TXRDY;
-		}
-	} else {
-		USB_TXCSRL(ep) |= USB_TXCSRL_TXRDY;
-	}
+	USB_DPRAM_EP_IN_BUFF_CTRL(ep) = v;
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	USB_DPRAM_EP_IN_BUFF_CTRL(ep) = v | USB_DPRAM_EP_BUFF_CTRL_AVAILABLE_0;
 
 	return i;
 }
@@ -398,167 +281,113 @@ static uint16_t rp2040_ep_read_packet(usbd_device *usbd_dev, uint8_t addr,
 				    void *buf, uint16_t len)
 {
 	(void)usbd_dev;
+	const uint8_t ep = addr & 0xf;
 
-	uint16_t rlen;
-	uint8_t ep = addr & 0xf;
+	usb_ep[ep].out_data = (uint8_t *)(buf);
 
-	uint16_t fifoin = USB_RXCOUNT(ep);
+	uint32_t v = len | (usb_ep[ep].out_pid ? USB_DPRAM_EP_BUFF_CTRL_PID_0 : 0);
+	usb_ep[ep].out_pid ^= 1;
 
-	rlen = (fifoin > len) ? len : fifoin;
+	USB_DPRAM_EP_OUT_BUFF_CTRL(ep) = v;
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	USB_DPRAM_EP_OUT_BUFF_CTRL(ep) = v | USB_DPRAM_EP_BUFF_CTRL_AVAILABLE_0;
 
-	/*
-	 * We don't need to worry about buf not being aligned. If it's not,
-	 * the writes are downgraded to 8-bit in hardware. We lose a bit of
-	 * performance, but we don't crash.
-	 */
-	for (len = 0; len < (rlen & ~0x3); len += 4) {
-		*((uint32_t *)(buf + len)) = USB_FIFO32(ep);
-	}
-	if (rlen & 0x2) {
-		*((uint16_t *)(buf + len)) = USB_FIFO16(ep);
-		len += 2;
-	}
-	if (rlen & 0x1) {
-		*((uint8_t *)(buf + len)) = USB_FIFO8(ep);
-	}
-
-	if (ep == 0) {
-		/*
-		 * Clear RXRDY
-		 * Datasheet says that DATAEND must also be set when clearing
-		 * RXRDY. We don't do that. If did this when transmitting a
-		 * packet larger than 64 bytes, only the first 64 bytes would
-		 * be transmitted, followed by a handshake. The host would only
-		 * get 64 bytes, seeing it as a malformed packet. Usually, we
-		 * would not get past enumeration.
-		 */
-		USB_CSRL0 |= USB_CSRL0_RXRDYC;
-
-	} else {
-		USB_RXCSRL(ep) &= ~USB_RXCSRL_RXRDY;
-	}
-
-	return rlen;
+	return len;
 }
 
 static void rp2040_poll(usbd_device *usbd_dev)
 {
 	void (*tx_cb)(usbd_device *usbd_dev, uint8_t ea);
 	void (*rx_cb)(usbd_device *usbd_dev, uint8_t ea);
-	int i;
 
 	/*
 	 * The initial state of these registers might change, as we process the
 	 * interrupt, but we need the initial state in order to decide how to
 	 * handle events.
 	 */
-	const uint8_t usb_is = USB_IS;
-	const uint8_t usb_rxis = USB_RXIS;
-	const uint8_t usb_txis = USB_TXIS;
-	const uint8_t usb_csrl0 = USB_CSRL0;
+	const uint32_t status = USB_INTS;
 
-	if ((usb_is & USB_IM_SUSPEND) && (usbd_dev->user_callback_suspend)) {
+	if ((status & USB_INT_DEV_SUSPEND) && (usbd_dev->user_callback_suspend)) {
+		USB_SIE_STATUS &= ~USB_INT_DEV_SUSPEND;
+
 		usbd_dev->user_callback_suspend();
 	}
 
-	if ((usb_is & USB_IM_RESUME) && (usbd_dev->user_callback_resume)) {
+	if ((status & USB_INT_DEV_RESUME_FROM_HOST) && (usbd_dev->user_callback_resume)) {
+		USB_SIE_STATUS &= ~USB_INT_DEV_RESUME_FROM_HOST;
+
 		usbd_dev->user_callback_resume();
 	}
 
-	if (usb_is & USB_IM_RESET) {
-		_usbd_reset(usbd_dev);
+	if (status & USB_INT_SETUP_REQ)
+	{
+		USB_SIE_STATUS &= ~USB_INT_SETUP_REQ;
+
+		usb_ep[0].in_pid  = 1;
+		usb_ep[0].out_pid = 1;
+
+		rp2040_ep_read_packet(usbd_dev, 0, &usbd_dev->control_state.req, 8);
+		if (usbd_dev->user_callback_ctr[0][USB_TRANSACTION_SETUP])
+			usbd_dev->user_callback_ctr[0][USB_TRANSACTION_SETUP](usbd_dev, 0);
 	}
 
-	if ((usb_is & USB_IM_SOF) && (usbd_dev->user_callback_sof)) {
+	if (status & USB_INT_BUS_RESET) {
+		USB_SIE_STATUS &= ~USB_SIE_STATUS_BUS_RESET;
+
+		_usbd_reset(usbd_dev);
+
+		usb_ep[0].in_buf = &USB_DPRAM_EP0_BUFF;
+		usb_ep[0].out_buf = &USB_DPRAM_EP0_BUFF;
+	}
+
+	if ((status & USB_INT_DEV_SOF) && (usbd_dev->user_callback_sof)) {
+		USB_SIE_STATUS &= ~USB_INT_DEV_SOF;
+
 		usbd_dev->user_callback_sof();
 	}
 
-	if (usb_txis & USB_EP0) {
-		/*
-		 * The EP0 bit in USB_TXIS is special. It tells us that
-		 * something happened on EP0, but does not tell us what. This
-		 * bit does not necessarily tell us that a packet was
-		 * transmitted, so we have to go through all the possibilities
-		 * to figure out exactly what did. Only after we've exhausted
-		 * all other possibilities, can we assume this is a EPO
-		 * "transmit complete" interrupt.
-		 */
-		if (usb_csrl0 & USB_CSRL0_RXRDY) {
-			enum _usbd_transaction type;
-			type = (usbd_dev->control_state.state != DATA_OUT &&
-				usbd_dev->control_state.state != LAST_DATA_OUT)
-				? USB_TRANSACTION_SETUP :
-				  USB_TRANSACTION_OUT;
-			if (type == USB_TRANSACTION_SETUP) {
-				rp2040_ep_read_packet(usbd_dev, 0, &usbd_dev->control_state.req, 8);
-			}
-			if (usbd_dev->user_callback_ctr[0][type]) {
-				usbd_dev->
-					user_callback_ctr[0][type](usbd_dev, 0);
-			}
+	if (status & USB_INT_BUFF_STATUS)
+	{
+		const uint32_t buff_status = USB_BUFF_STATUS;
 
+		uint32_t flags = buff_status;
 
-		} else {
-			tx_cb = usbd_dev->user_callback_ctr[0]
-							   [USB_TRANSACTION_IN];
+		for (int ep = 1; ep < USB_DPRAM_EP_NUM && flags > 0; ep++) {
+			tx_cb = usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_IN];
+			rx_cb = usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_OUT];
 
-			/*
-			 * EP0 bit in TXIS is set not only when a packet is
-			 * finished transmitting, but also when RXRDY is set, or
-			 * when we set TXRDY to transmit a packet. If any of
-			 * those are the case, then we do not want to call our
-			 * IN callback, since the state machine will be in the
-			 * wrong state, and we'll just stall our control
-			 * endpoint.
-			 * In fact, the only way to know if it's time to call
-			 * our TX callback is to know what to expect. The
-			 * hardware does not tell us what sort of transaction
-			 * this is. We need to work with the state machine to
-			 * figure it all out. See [1] for details.
-			 */
-			if ((usbd_dev->control_state.state != DATA_IN) &&
-			    (usbd_dev->control_state.state != LAST_DATA_IN) &&
-			    (usbd_dev->control_state.state != STATUS_IN)) {
-				return;
+			if ((flags & 1) && tx_cb) // IN
+				tx_cb(usbd_dev, ep);
+
+			if (flags & 2) { // OUT
+				int size = USB_DPRAM_EP_OUT_BUFF_CTRL(ep) & USB_DPRAM_EP_BUFF_CTRL_LENGTH_0_MASK;
+
+				for (int i = 0; i < size; i++)
+					usb_ep[ep].out_data[i] = usb_ep[ep].out_buf[i];
+
+				if (rx_cb)
+					rx_cb(usbd_dev, ep);
 			}
 
-			if (tx_cb) {
-				tx_cb(usbd_dev, 0);
-			}
+			flags >>= 2;
 		}
+
+		// Write back to registers to clear
+		USB_BUFF_STATUS = buff_status;
 	}
-
-	/* See which interrupt occurred */
-	for (i = 1; i < 8; i++) {
-		tx_cb = usbd_dev->user_callback_ctr[i][USB_TRANSACTION_IN];
-		rx_cb = usbd_dev->user_callback_ctr[i][USB_TRANSACTION_OUT];
-
-		if ((usb_txis & (1 << i)) && tx_cb) {
-			tx_cb(usbd_dev, i);
-		}
-
-		if ((usb_rxis & (1 << i)) && rx_cb) {
-			rx_cb(usbd_dev, i);
-		}
-	}
-
-
 }
 
 static void rp2040_disconnect(usbd_device *usbd_dev, bool disconnected)
 {
 	(void)usbd_dev;
 
-	/*
-	 * This is all it takes:
-	 * usbd_disconnect(dev, 1) followed by usbd_disconnect(dev, 0)
-	 * causes the device to re-enumerate and re-configure properly.
-	 */
-	if (disconnected) {
+	if (disconnected)
 		rp2040_usb_soft_disconnect();
-	} else {
+	else
 		rp2040_usb_soft_connect();
-	}
 }
 
 /*
@@ -570,60 +399,8 @@ static struct _usbd_device usbd_dev;
 /** Initialize the USB device controller hardware of the RP2040. */
 static usbd_device *rp2040_usbd_init(void)
 {
-	int i;
-
-	/* Start the USB clock */
-	periph_clock_enable(RCC_USB0);
-	/* Enable the USB PLL interrupts - used to assert PLL lock */
-	SYSCTL_IMC |= (SYSCTL_IMC_USBPLLLIM | SYSCTL_IMC_PLLLIM);
-	rcc_usb_pll_on();
-
-	/* Make sure we're disconnected. We'll reconnect later */
-	rp2040_usb_soft_disconnect();
-
-	/* Software reset USB */
-	SYSCTL_SRUSB = 1;
-	for (i = 0; i < 1000; i++) {
-		__asm__("nop");
-	}
-	SYSCTL_SRUSB = 0;
-
-	/*
-	 * Wait for the PLL to lock before soft connecting
-	 * This will result in a deadlock if the system clock is not setup
-	 * correctly (clock from main oscillator).
-	 */
-	/* Wait for it */
-	i = 0;
-	while ((SYSCTL_RIS & SYSCTL_RIS_USBPLLLRIS) == 0) {
-		i++;
-		if (i > 0xffff) {
-			return 0;
-		}
-	}
-
-	/* Now connect to USB */
-	rp2040_usb_soft_connect();
-
-	/* No FIFO allocated yet, but the first 64 bytes are still reserved */
-	usbd_dev.fifo_mem_top = 64;
-
-	return &usbd_dev;
-
-
-
-
-
-
-    // Reset usb controller
-    reset_block(RESETS_RESET_USBCTRL);
-    unreset_block_wait(RESETS_RESET_USBCTRL);
-
-    // Clear any previous state in dpram just in case
-    memset(USBCTRL_DPRAM_BASE, 0, sizeof(*usb_dpram)); // <1>
-
-    // Enable USB interrupt at processor
-    irq_set_enabled(USBCTRL_IRQ, true);
+	// Should we be clearing dpram??
+	memset((void *)USBCTRL_DPRAM_BASE, 0, USB_DPRAM_SIZE);
 
     // Mux the controller to the onboard usb phy
     USB_USB_MUXING = USB_USB_MUXING_TO_PHY | USB_USB_MUXING_SOFTCON;
@@ -631,24 +408,23 @@ static usbd_device *rp2040_usbd_init(void)
     // Force VBUS detect so the device thinks it is plugged into a host
     USB_USB_PWR = USB_USB_PWR_VBUS_DETECT | USB_USB_PWR_VBUS_DETECT_OVERRIDE_EN;
 
-    // Enable the USB controller in device mode.
+    // Initializes the USB peripheral for device mode and enables it.
+    // Don't need to enable the pull up here. Force VBUS
     USB_MAIN_CTRL = USB_MAIN_CTRL_CONTROLLER_EN;
 
-    // Enable an interrupt per EP0 transaction
-    USB_SIE_CTRL = USB_SIE_CTRL_EP0_INT_1BUF; // <2>
+    // Enable individual controller IRQS here. Processor interrupt enable will be used
+    // for the global interrupt enable...
+    USB_SIE_CTRL = USB_SIE_CTRL_EP0_INT_1BUF; 
+    USB_INTE = USB_INT_BUFF_STATUS | USB_INT_BUS_RESET | USB_INT_SETUP_REQ;
 
-    // Enable interrupts for when a buffer is done, when the bus is reset,
-    // and when a setup packet is received
-    USB_INTE = USB_INT_BUFF_STATUS |
-               USB_INT_BUS_RESET |
-               USB_INT_SETUP_REQ;
+	// Clear endpoint address
+	rp2040_set_address(&usbd_dev, 0);
 
-    // Set up endpoints (endpoint control registers)
-    // described by device configuration
-    usb_setup_endpoints();
+	rp2040_endpoints_reset(&usbd_dev);
 
-    // Present full speed device by enabling pull up on DP
-    USB_SIE_CTRL = USB_SIE_CTRL_PULLUP_EN;
+	rp2040_usb_soft_connect();
+
+	return &usbd_dev;
 }
 
 /* What is this thing even good for */
