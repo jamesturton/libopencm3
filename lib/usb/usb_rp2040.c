@@ -124,57 +124,6 @@ static void rp2040_set_address(usbd_device *usbd_dev, uint8_t addr)
 	USB_ADDR_ENDP(0) = USB_ADDR_ENDP_ADDRESS(addr) & USB_ADDR_ENDP_ADDRESS_MASK;
 }
 
-static void rp2040_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
-			  uint16_t max_size,
-			  void (*callback) (usbd_device *usbd_dev, uint8_t ep))
-{
-	const bool dir_tx = addr & 0x80;
-	const uint8_t ep = addr & 0x7f;
-
-	// EP0 is already set up for us so we don't have anything to do here
-	if (addr == 0) {
-		usbd_dev->fifo_mem_top_ep0 = USB_DPRAM_EP0_BUFF_OFFSET + USB_DPRAM_EP0_BUFF_SIZE;
-		return;
-	}
-
-	// The data buffer base address must be 64-byte aligned as bits 0-5 are ignored
-	uint16_t fifo_size;
-	if (max_size <= 64)
-		fifo_size = 64;
-	else if (max_size <= 128)
-		fifo_size = 128;
-	else if (max_size <= 256)
-		fifo_size = 256;
-	else if (max_size <= 512)
-		fifo_size = 512;
-	else
-		fifo_size = 1024;
-
-	/* Are we out of FIFO space? */
-	if (usbd_dev->fifo_mem_top + fifo_size > USB_DPRAM_SIZE)
-		return;
-
-	if (dir_tx) {
-		if (callback)
-			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_IN] = (void *)callback;
-
-		USB_DPRAM_EP_IN_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
-			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
-			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
-			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
-	} else {
-		if (callback)
-			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_OUT] = (void *)callback;
-
-		USB_DPRAM_EP_OUT_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
-			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
-			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
-			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
-	}
-
-	usbd_dev->fifo_mem_top += fifo_size;
-}
-
 static void rp2040_endpoints_reset(usbd_device *usbd_dev)
 {
 	// Don't reset ep0
@@ -267,16 +216,20 @@ static uint16_t rp2040_ep_read_packet(usbd_device *usbd_dev, uint8_t addr,
 	uint16_t blen = USB_DPRAM_EP_OUT_BUFF_CTRL(ep) & USB_DPRAM_EP_BUFF_CTRL_LENGTH_0_MASK;
 	uint16_t rlen = (blen > len) ? len : blen;
 
-	volatile uint8_t *out_buf;
-	// EP0 is always in the same place, and is shared with IN
-	if (ep == 0)
-		out_buf = &USB_DPRAM_EP0_BUFF;
-	else
-		out_buf = &USB_DPRAM_BUFFER(USB_DPRAM_EP_OUT_CTRL(ep) & USB_DPRAM_EP_CTRL_BUFFER_ADDRESS_MASK);
+	if (buf) {
+		volatile uint8_t *out_buf;
+		// EP0 is always in the same place, and is shared with IN
+		if (ep == 0)
+			out_buf = &USB_DPRAM_EP0_BUFF;
+		else
+			out_buf = &USB_DPRAM_BUFFER(USB_DPRAM_EP_OUT_CTRL(ep) & USB_DPRAM_EP_CTRL_BUFFER_ADDRESS_MASK);
 
-	memcpy((uint8_t *)buf, (uint8_t *)out_buf, rlen);
+		memcpy((uint8_t *)buf, (uint8_t *)out_buf, rlen);
+	} else {
+		blen = len;
+	}
 
-	uint32_t val = rlen | (usb_ep[ep].out_pid ? USB_DPRAM_EP_BUFF_CTRL_PID_0 : 0) |
+	uint32_t val = blen | (usb_ep[ep].out_pid ? USB_DPRAM_EP_BUFF_CTRL_PID_0 : 0) |
 		USB_DPRAM_EP_BUFF_CTRL_AVAILABLE_0;
 	usb_ep[ep].out_pid ^= 1;
 
@@ -293,6 +246,62 @@ static void rp2040_ep_nak_set(usbd_device *usbd_dev, uint8_t addr, uint8_t nak)
 	// Receive a zero length status packet from the host on EP0 OUT
 	if (!nak)
 		rp2040_ep_read_packet(usbd_dev, addr, NULL, 0);
+}
+
+static void rp2040_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
+			  uint16_t max_size,
+			  void (*callback) (usbd_device *usbd_dev, uint8_t ep))
+{
+	const bool dir_tx = addr & 0x80;
+	const uint8_t ep = addr & 0x7f;
+
+	// EP0 is already set up for us so we don't have anything to do here
+	if (addr == 0) {
+		usbd_dev->fifo_mem_top_ep0 = USB_DPRAM_EP0_BUFF_OFFSET + USB_DPRAM_EP0_BUFF_SIZE;
+		return;
+	}
+
+	// The data buffer base address must be 64-byte aligned as bits 0-5 are ignored
+	uint16_t fifo_size;
+	if (max_size <= 64)
+		fifo_size = 64;
+	else if (max_size <= 128)
+		fifo_size = 128;
+	else if (max_size <= 256)
+		fifo_size = 256;
+	else if (max_size <= 512)
+		fifo_size = 512;
+	else
+		fifo_size = 1024;
+
+	/* Are we out of FIFO space? */
+	if (usbd_dev->fifo_mem_top + fifo_size > USB_DPRAM_SIZE)
+		return;
+
+	if (dir_tx) {
+		if (callback)
+			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_IN] = (void *)callback;
+
+		// Configure and enable endpoint
+		USB_DPRAM_EP_IN_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
+			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
+			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
+			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
+	} else {
+		if (callback)
+			usbd_dev->user_callback_ctr[ep][USB_TRANSACTION_OUT] = (void *)callback;
+
+		// Configure and enable endpoint
+		USB_DPRAM_EP_OUT_CTRL(ep) = USB_DPRAM_EP_CTRL_ENABLE |
+			USB_DPRAM_EP_CTRL_INTERRUPT_PER_BUFF |
+			USB_DPRAM_EP_CTRL_ENDPOINT_TYPE(type) |
+			USB_DPRAM_EP_CTRL_BUFFER_ADDRESS(usbd_dev->fifo_mem_top);
+
+		// Mark endpoint as avaliable for controller
+		rp2040_ep_read_packet(usbd_dev, addr, NULL, fifo_size);
+	}
+
+	usbd_dev->fifo_mem_top += fifo_size;
 }
 
 static void rp2040_poll(usbd_device *usbd_dev)
