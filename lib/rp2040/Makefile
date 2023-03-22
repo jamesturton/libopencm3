@@ -22,7 +22,7 @@ SRCLIBDIR	?= ..
 
 CC		= $(PREFIX)gcc
 AR		= $(PREFIX)ar
-TGT_CFLAGS	= -Os -Wall -Wextra -I../../include -fno-common \
+TGT_CFLAGS	= -O0 -Wall -Wextra -I../../include -fno-common \
 		  -mcpu=cortex-m0plus -mthumb $(FP_FLAGS) -Wstrict-prototypes \
 		  -ffunction-sections -fdata-sections  -MD -DRP2040
 TGT_CFLAGS      += $(DEBUG_FLAGS)

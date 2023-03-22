@@ -47,18 +47,19 @@
 
 #define USB_DPRAM_SIZE                  0x1000
 #define USB_DPRAM_EP_NUM                16
-#define USB_DPRAM_EP0_BUF_SIZE          0x40
+#define USB_DPRAM_EP0_BUFF_SIZE         0x40
+#define USB_DPRAM_EP0_BUFF_OFFSET       0x100
 #define USB_DPRAM_BUFFER_OFFSET         0x180
 #define USB_DPRAM_BUFFER_SIZE           (USB_DPRAM_SIZE - USB_DPRAM_BUFFER_OFFSET)
 
 #define USB_DPRAM_SETUP                 MMIO8((USBCTRL_DPRAM_BASE) + 0x00)
-#define USB_DPRAM_EP_IN_CTRL(ep)        MMIO32((USBCTRL_DPRAM_BASE) + 0x00 + (0x04 * (ep)))
-#define USB_DPRAM_EP_OUT_CTRL(ep)       MMIO32((USBCTRL_DPRAM_BASE) + 0x04 + (0x04 * (ep)))
-#define USB_DPRAM_EP_IN_BUFF_CTRL(ep)   MMIO32((USBCTRL_DPRAM_BASE) + 0x80 + (0x04 * (ep)))
-#define USB_DPRAM_EP_OUT_BUFF_CTRL(ep)  MMIO32((USBCTRL_DPRAM_BASE) + 0x84 + (0x04 * (ep)))
+#define USB_DPRAM_EP_IN_CTRL(ep)        MMIO32((USBCTRL_DPRAM_BASE) + 0x00 + (0x08 * (ep)))
+#define USB_DPRAM_EP_OUT_CTRL(ep)       MMIO32((USBCTRL_DPRAM_BASE) + 0x04 + (0x08 * (ep)))
+#define USB_DPRAM_EP_IN_BUFF_CTRL(ep)   MMIO32((USBCTRL_DPRAM_BASE) + 0x80 + (0x08 * (ep)))
+#define USB_DPRAM_EP_OUT_BUFF_CTRL(ep)  MMIO32((USBCTRL_DPRAM_BASE) + 0x84 + (0x08 * (ep)))
 #define USB_DPRAM_EP0_BUFF              MMIO8((USBCTRL_DPRAM_BASE) + 0x100)
 #define USB_DPRAM_EP0_BUFF_OPT          MMIO8((USBCTRL_DPRAM_BASE) + 0x140)
-#define USB_DPRAM_BUFFER                MMIO8((USBCTRL_DPRAM_BASE) + USB_DPRAM_BUFFER_OFFSET)
+#define USB_DPRAM_BUFFER(offset)        MMIO8((USBCTRL_DPRAM_BASE) + (offset))
 
 /* --- USB_DPRAM_EP_CTRL values --------------------------------------------- */
 
@@ -277,6 +278,9 @@
 #define USB_INT_EP_CTRL_INT_EP_ACTIVE_MASK          (0x7fff << 1)
 
 /* --- USB_BUFF_STATUS values ----------------------------------------------- */
+
+#define USB_BUFF_STATUS_IN(ep)                      (0x1 << ((ep) * 2))
+#define USB_BUFF_STATUS_OUT(ep)                     (0x1 << (1 + ((ep) * 2)))
 
 #define USB_BUFF_STATUS_EP0_IN                      (0x1 << 0)
 #define USB_BUFF_STATUS_EP0_OUT                     (0x1 << 1)
