@@ -86,6 +86,8 @@
 
 #define GPIO_DIR_IN			(0)
 #define GPIO_DIR_OUT		(1)
+
+#define GPIO_OFFSET(gpio)   (0x1 << (gpio))
 /** @} */
 
 
@@ -126,6 +128,7 @@ void gpio_set_dir(uint32_t gpios, bool out);
 void gpio_set(uint32_t gpios);
 void gpio_clear(uint32_t gpios);
 void gpio_toggle(uint32_t gpios);
+bool gpio_get(uint32_t gpio);
 
 /** @} */
 END_DECLS

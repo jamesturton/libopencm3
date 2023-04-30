@@ -106,6 +106,11 @@ void gpio_toggle(uint32_t gpios)
 	GPIO_OUT_XOR = gpios;
 }
 
+bool gpio_get(uint32_t gpio)
+{
+	return GPIO_IN & GPIO_OFFSET(gpio);
+}
+
 /**@}*/
 
 /**@}*/
