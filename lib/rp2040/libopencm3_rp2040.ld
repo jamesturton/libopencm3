@@ -23,7 +23,6 @@
 
 MEMORY
 {
-	rom (rx)  : ORIGIN = 0x10000000, LENGTH = 2048k
 	ram (rwx) : ORIGIN = 0x20000000, LENGTH = 256K
 }
 
